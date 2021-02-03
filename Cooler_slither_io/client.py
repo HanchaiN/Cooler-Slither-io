@@ -12,8 +12,7 @@ def __shownode(n): # again but with other color # {pos:[x,y],rad:...}
 def __showtentacle(tent): # {vol:...,nodes:[...n]}
     for n in tent['nodes']:
         __shownode(n) # run nodes there
-def showmap(data,main=''): # some shame graphic # {r:...,slithers:{...tent},pallets:[...p]}
-    full=json.loads(data)
+def showmap(full,main=''): # some shame graphic # {r:...,slithers:{...tent},pallets:[...p]}
     if main in full['slithers']: # if we focus on exist slither
         print(full['slithers'][main]['vol']) # status export huh
         translate(width/2,height/2)
