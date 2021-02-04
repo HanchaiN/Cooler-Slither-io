@@ -140,7 +140,7 @@ class fullmap: # the full server have come
                 j+=1
         return objects # well I just include all object in the game one-by-one
     def update(self): # again updating time aka update()
-        col=__bvh(self.__objectlist()).collisions() # these function will be explianed later
+        col=_bvh(self.__objectlist()).collisions() # these function will be explianed later
         dead=set([]) # we need to track for the dead one
         eaten=set([]) # and also the eaten pallet
         for i in col: # check each (detected) collision
@@ -210,15 +210,15 @@ class fullmap: # the full server have come
     @staticmethod
     def load(): # and pick this
         return pickle.load(open('save.bin','rb'))
-class __bvh:
+class _bvh:
     def __init__(self,objects,axis='x'):
         self.l=None
         self.r=None
         self.n=None
-        if len(obj)==0:
+        if len(objects)==0:
             return
         if len(objects)==1: # end node now
-            self.n=objects
+            self.n=objects[0]
             return
         if axis=='x':
             objects.sort(key=lambda a: a['pos'][1])
@@ -226,8 +226,8 @@ class __bvh:
         elif axis=='y':
             objects.sort(key=lambda a: a['pos'][0])
             axis='x'
-        self.l=__bvh(objects[:len(obj)//2:1],axis)
-        self.r=__bvh(objects[len(obj)//2::1],axis)
+        self.l=_bvh(objects[:len(objects)//2:1],axis)
+        self.r=_bvh(objects[len(objects)//2::1],axis)
     def boundary(self): # we need boundaries to see if it can collide
         if self.n: # end node huh
             return {'x':[self.n['pos'][0]-self.n['rad'],self.n['pos'][0]+self.n['rad']],'y':[self.n['pos'][1]-self.n['rad'],self.n['pos'][1]+self.n['rad']]}
@@ -258,14 +258,14 @@ class __bvh:
     def collision(a,b): # bla bla bla, code is in the Internet, just google it.
         if (not a or not b):
             return []
-        if __bvh.overlap(a,b):
+        if _bvh.overlap(a,b):
             if a.n and b.n:
                 return [[a.n,b.n]]
             if a.n:
-                return b.collisions()+__bvh.collision(a,b.l)+__bvh.collision(a,b.r)
+                return b.collisions()+_bvh.collision(a,b.l)+_bvh.collision(a,b.r)
             if b.n:
-                return a.collisions()+__bvh.collision(b,a.l)+__bvh.collision(b,a.r)
-            return a.collisions()+b.collisions()+__bvh.collision(a.l,b.l)+__bvh.collision(a.l,b.r)+__bvh.collision(a.r,b.l)+__bvh.collision(a.r,b.r)
+                return a.collisions()+_bvh.collision(b,a.l)+_bvh.collision(b,a.r)
+            return a.collisions()+b.collisions()+_bvh.collision(a.l,b.l)+_bvh.collision(a.l,b.r)+_bvh.collision(a.r,b.l)+_bvh.collision(a.r,b.r)
         return a.collisions()+b.collisions()
 
 # for real HTTP implementation, Nope I won't do it.

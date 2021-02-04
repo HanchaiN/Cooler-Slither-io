@@ -1,9 +1,9 @@
 import backend
 import time # to track ticks per sec
 import json # to handle input
+import threading # to calculate and manage http at once
 
-# initial setup
-g=backend.fullmap(1000)
+g=backend.fullmap(1000) # here's come our map
 
 # Here I come. HTTPs setup.
 import http.server
@@ -16,37 +16,54 @@ class handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(bytes(g.export(), 'utf-8'))
-
-    def do_HEAD(self):
-        pass
+        with locker:
+            self.wfile.write(bytes(g.export(), 'utf-8'))
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers['Content-Length']))
-        print(body)
-        print(g.spawn(json.loads(body)['id']))
-        self.send_response(200)
-        self.end_headers()
+        with locker:
+            if(g.spawn(json.loads(body)['id'])):
+                self.send_response(201)
+            else:
+                self.send_response(208)
+            self.end_headers()
         response = BytesIO()
         response.write(body)
         self.wfile.write(response.getvalue())
 
     def do_PUT(self):
-        content_length = int(self.headers['Content-Length'])
-        body = self.rfile.read(content_length)
-        self.send_response(200)
-        self.end_headers()
+        body = self.rfile.read(int(self.headers['Content-Length']))
+        with locker:
+            if(g.turn(json.loads(body)['id'],json.loads(body)['angle'])):
+                self.send_response(202)
+            else:
+                self.send_response(404)
+            self.end_headers()
         response = BytesIO()
         response.write(body)
         self.wfile.write(response.getvalue())
-
-httpd = socket.TCPServer(('localhost', 8000), handler)
-httpd.serve_forever()
+def httphandler():
+    httpd = socketserver.TCPServer(('localhost', 8000), handler)
+    httpd.serve_forever()
 
 # Standard run
-delta=0
-backend.delta=lambda: delta
-while True:
-    t=time.time_ns()
-    g.update()
-    delta=0.5*delta+0.5*10**(-9)*(time.time_ns()-t)
+def calculate():
+    delta=0
+    backend.delta=lambda: delta
+    while True:
+        t=time.time_ns()
+        with locker:
+            g.update()
+        delta=0.5*delta+0.5*10**(-9)*(time.time_ns()-t)
+        print(delta)
+
+# initiate the threads
+locker=threading.Lock()
+httphandler_=threading.Thread(target=httphandler)
+# httphandler_.daemon=True
+calculate_=threading.Thread(target=calculate)
+# calculate_.daemon=True
+
+# run
+httphandler_.start()
+calculate_.start()
