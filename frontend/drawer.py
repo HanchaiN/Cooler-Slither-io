@@ -1,5 +1,3 @@
-import json
-
 def __showpallet(p): # {pos:[x,y],rad:...}
     fill(0) # very bad color for the pallet
     noStroke()
@@ -13,11 +11,12 @@ def __showtentacle(tent): # {vol:...,nodes:[...n]}
     for n in tent['nodes']:
         __shownode(n) # run nodes there
 def showmap(full,main=''): # some shame graphic # {r:...,slithers:{...tent},pallets:[...p]}
+    background(255,128,128) # base background
     if main in full['slithers']: # if we focus on exist slither
-        print(full['slithers'][main]['vol']) # status export huh
+        print(full['slithers'][main]['data']['vol']) # status export huh
         translate(width/2,height/2)
-        scale(100*0.5/full['slithers'][main]['nodes'][0]['rad']) # scale so that the head is of size 100 ( if you may implement me some uh smooth transition, it'll be nice)
-        translate(-full['slithers'][main]['nodes'][0]['pos'][0],-full['slithers'][main]['nodes'][0]['pos'][1]) # and make sure that the slither is in the center
+        scale(100*0.5/full['slithers'][main]['data']['nodes'][0]['rad']) # scale so that the head is of size 100 ( if you may implement me some uh smooth transition, it'll be nice)
+        translate(-full['slithers'][main]['data']['nodes'][0]['pos'][0],-full['slithers'][main]['data']['nodes'][0]['pos'][1]) # and make sure that the slither is in the center
     else: # or if you're dead you will look at the entire map aka minimap
         id=''
         v=0

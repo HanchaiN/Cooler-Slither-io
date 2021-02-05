@@ -1,4 +1,3 @@
-import json # secure and readable format
 import pickle # just dumb it
 
 from processing import * # to implement used processing built-in functions in normal cpython
@@ -120,19 +119,38 @@ class fullmap: # the full server have come
     def __init__(self,radius):
         self.r=radius
         self.__slithers={} # list of slither, using some IDs
-        self.__pallets=[] # and simply list of pallets
-    def spawn(self,id): # spawn new slither of ID at pos
-        if id in self.__slithers: # sorry but this ID existed
-            return False
+        self.__slithers_data={}
+        self.__pallets={} # and simply list of pallets
+    def spawn(self,data={}): # spawn new slither of ID at pos
+        i=0
+        while i in self.__pallets:
+            i+=1
         pos=PVector.mult(PVector.random2D(),self.r*random(0.2,0.8)) # wish you have lucky spawn
-        self.__slithers[id]=_tentacle(pos,25,5) # and its time to create the new one with optimized variable (size,length)
-        return True
+        self.__slithers[i]=_tentacle(pos,25,5) # and its time to create the new one with optimized variable (size,length)
+        self.__slithers_data[i]=data
+        self.__slithers_data[i]['status']='live'
+        return i
+    def remove(self,id):
+        if id in self.__slithers:
+            if self.__slithers_data[i]['status']=='live':
+                return 2
+            del self.__slithers[id]
+            del self.__slithers_data[id]
+            return 4
+        return 0
+    def __create(self,loc):
+        i=0
+        while i in self.__pallets:
+            i+=1
+        self.__pallets[i]=_pallet(loc,10) # put new pallet in at standard size of 10
     def __objectlist(self): # we need to list objects for collision detection
         objects=[]
         for i in range(len(self.__pallets)):
             objects.append(self.__pallets[i].data())
             objects[-1].update({'data':{'type':'pallet','index':i}})
         for i in self.__slithers:
+            if self.__slithers_data[i]['status']=='dead':
+                continue
             j=0
             for n in self.__slithers[i]:
                 objects.append(n.data())
@@ -169,7 +187,6 @@ class fullmap: # the full server have come
             if PVector(*self.__pallets[i].data()['pos']).mag()>self.r-self.__pallets[i].data()['rad']:
                 eaten.add(i) # boom the border eated you 555
         eaten=list(eaten) # list eaten pallet
-        eaten.sort(reverse=True) # and sort it so when we pop it out, it doesn't effect the index of others
         for i in eaten:
             self.__pallets.pop(i) # pop the pallet gone
         for i in self.__slithers: # check if it dead by the border
@@ -187,24 +204,26 @@ class fullmap: # the full server have come
                     loc=PVector(randomGaussian(),randomGaussian())
                     loc=PVector.mult(loc,n.data()['rad']/3)
                     loc=PVector.add(loc,PVector(*n.data()['pos']))
-                    self.__pallets.append(_pallet(loc,10)) # place standard (10) pallet at somewhere that 0.2% (+-3sigma) out of the axist
-            del self.__slithers[i] # and it was completely removed
+                    self.__create(_pallet(loc,10)) # place standard pallet at somewhere that 0.2% (+-3sigma) out of the axist
+            self.__slithers_data[i]['status']='dead' # to notify user
         for t in self.__slithers:
+            if self.__slithers_data[i]['status']=='dead':
+                continue
             self.__slithers[t].update() # update the slithers, now!
         if len(self.__pallets)<0.2*(self.r/10)**2: # we didn't want to be in flood of pallets, right so let say 0.2 of the area
-            self.__pallets.append(_pallet(PVector.mult(PVector.random2D(),random(self.r)),10)) # this make the center have more pallet density than that of the border but different ways from when it drop from the dead (10 is that same constant btw (I may want to random it from 10(smallest) to 25(biggest limit)))
+            self.__create(PVector.mult(PVector.random2D(),random(self.r))) # this make the center have more pallet density than that of the border but different ways from when it drop from the dead
     def turn(self,id,angle): # anyone with id can turn the slither to that angle
-        if id in self.__slithers:
+        if id in self.__slithers and self.__slithers_data[i]['status']=='live':
             self.__slithers[id].setangle(angle)
             return True
         return False
-    def export(self): # all data of all user is here tho, so hacks is o=possible if you don't apply some filter
-        d={'r':self.r,'slithers':{},'pallets':[]}
+    def export(self): # all data of all user is here tho, so hacks is possible if you don't apply some filter
+        d={'r':self.r,'slithers':{},'pallets':{}}
         for p in self.__pallets:
-            d['pallets'].append(p.data())
+            d['pallets'][p]=p.data()
         for t in self.__slithers:
-            d['slithers'][t]=self.__slithers[t].data()
-        return json.dumps(d)
+            d['slithers'][t]={'data':self.__slithers[t].data(),'embed':self.__slithers_data[t])
+        return d
     def store(self): # take this
         pickle.dumb(self,open('save.bin','wb')) # I'm too lazy to modify this to json and then import back, so I just dump it all
     @staticmethod
