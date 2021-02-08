@@ -19,3 +19,8 @@ Wait! Where's your body? What are these things? Now you realize that your body h
 ## Features:
 * Basic gameplay.
 * Server-Client multiplayer style game are compatible.
+
+## live code:
+* Backend: https://repl.it/@mwit308/csi-backend
+* Testing server: https://csi-backend.mwit308.repl.co
+* Frontend: https://repl.it/@mwit308/csi-frontend
