@@ -1,5 +1,8 @@
+# Hanchai Nonprasart
+
 import pickle # just dumb it
 import json
+import time # to track ticks per sec
 
 from processing import * # to implement used processing built-in functions in normal cpython
 
@@ -38,7 +41,7 @@ class _node: # this was modified segment from https://thecodingtrain.com/CodingC
 			self.__pos.lerp(pos,vol/sum)
 		self.__rad = sqrt(sum)
 	def data(self): # Duplicated from _pallet
-		return {'pos':[self.__pos.x,self.__pos.y],'rad':self.__rad}
+		return {'pos':[self.__pos.x,self.__pos.y],'angle':self.__angle,'rad':self.__rad}
 	def __findend(self): # forward kinematics
 		self.__tail=PVector.add(self.__pos,PVector.mult(PVector.fromAngle(self.__angle),self.__rad))
 	def follow(self,pos): # inverse kinematics
@@ -89,16 +92,16 @@ class _tentacle: # our full slither are ready
 		if rad>35: # here lies your check mark optimized
 			self.__n+=1
 			rad=sqrt(self.__vol/(16*self.__n/3-1.5+1/(6*self.__n)))
-			head=node(self.__node,map(self.__n-1,0,self.__n,rad*2,rad*3))
+			head=_node(self.__node,map(self.__n-1,0,self.__n,rad*2,rad*3))
 			self.__node.setchild(head)
 			self.__node=head # new official node congraturation
 		j=self.__n-1
 		for i in self:
 			i.consume(map(j,0,self.__n,rad*2,rad*3)**2-i.data()['rad']**2)
 			j-=1
-	def update(self): # bigger update time
+	def update(self,dt): # bigger update time
 		p=PVector.fromAngle(self.__angle) # unit vector for fun
-		p.setMag(self.__node.data()['rad']+100*delta()) # the real point that follow us is tail (which actually more head and was not shown) of the head and 100 is just speed in px/s
+		p.setMag(self.__node.data()['rad']+100*dt) # the real point that follow us is tail (which actually more head and was not shown) of the head and 100 is just speed in px/s
 		p=PVector.add(PVector(*self.__node.data()['pos']),p) # and add it from current position
 		self.__node.follow(p) # follow our node
 		for i in self: # this use iterator that will explain below
@@ -129,6 +132,8 @@ class fullmap: # the full server have come
 		self.__slithers={} # list of slither, using some IDs
 		self.__slithers_data={}
 		self.__pallets={} # and simply list of pallets
+		self.t=time.time_ns()
+		self.dt=0
 	def spawn(self,data={}): # spawn new slither of ID at pos
 		i=1
 		while i in self.__slithers:
@@ -146,6 +151,7 @@ class fullmap: # the full server have come
 			return True
 		if iden in self.__slithers:
 			self.__slithers_data[iden]['private']['delete']=not self.__slithers_data[iden]['private']['delete']
+			return True
 		return False
 	def __create(self,loc,size=10):
 		i=1
@@ -167,6 +173,7 @@ class fullmap: # the full server have come
 				j+=1
 		return objects # well I just include all object in the game one-by-one
 	def update(self): # again updating time aka update()
+		event={}
 		col=_bvh(self.__objectlist()).collisions() # these function will be explianed later
 		dead=set([]) # we need to track for the dead one
 		eaten=set([]) # and also the eaten pallet
@@ -186,7 +193,7 @@ class fullmap: # the full server have come
 			elif i[0]['data']['type']=='slither':
 				if i[1]['data']['type']=='slither':
 					i.sort(key=lambda x:x['data']['location']) # again
-					if i[0]['data']['index']!=i[1]['data']['index'] and i[0]['data']['location']==0: # to not eat itself and to make sure that it was hitted at the head
+					if i[0]['data']['index']!=i[1]['data']['index'] and i[0]['data']['location']==0 and i[1]['data']['location']==0: # to not eat itself and to make sure that it was hitted at the head
 						dead.add(i[0]['data']['index']) # now he's dead
 				else:
 					pass # again
@@ -199,8 +206,15 @@ class fullmap: # the full server have come
 		for i in eaten:
 			self.__pallets.pop(i) # pop the pallet gone
 		for i in self.__slithers: # check if it dead by the border
-			if PVector(*self.__slithers[i].head().data()['pos']).mag()>self.r-self.__slithers[i].head().data()['rad']:
-				dead.add(i) # boom
+			if self.__slithers_data[i]['public']['status']!='dead':
+				if PVector(*self.__slithers[i].head().data()['pos']).mag()>self.r-self.__slithers[i].head().data()['rad']:
+					dead.add(i) # boom
+				if self.__slithers[i].data()['vol']>(self.r)**2:
+					self.__slithers_data[i]['public']['status']='win' # congrats here
+					if 'win' in event:
+						event['win'].add(self.__slithers_data[i]['private']['username'])
+					else:
+						event['win']=set([self.__slithers_data[i]['private']['username']])
 		dead=list(dead)
 		for i in dead: # again but we have to care about drop
 			for n in self.__slithers[i]: # this make server crash so I change to just a big drop
@@ -220,16 +234,25 @@ class fullmap: # the full server have come
 				# 	loc=PVector.add(loc,PVector(*n.data()['pos']))
 				# 	self.__create(loc) # place standard pallet at somewhere that 0.2% (+-3sigma) out of the axist
 			self.__slithers_data[i]['public']['status']='dead' # to notify user
+			self.__slithers_data[i]['private']['dead']=self.t+1*60*10**9 # time to delete this dead from server
 			if self.__slithers_data[i]['private']['delete']:
 				self.remove(i)
+		dead=set([])
 		for t in self.__slithers:
-			if self.__slithers_data[i]['public']['status']=='dead':
+			if self.__slithers_data[t]['public']['status']=='dead':
+				if self.t>self.__slithers_data[t]['private']['dead']: # If you don't delete in given time, we will do it for you
+					dead.add(t)
 				continue
-			self.__slithers[t].update() # update the slithers, now!
+			self.__slithers[t].update(self.dt) # update the slithers, now!
+		for t in dead:
+			self.remove(t)
 		if len(self.__pallets)<0.2*(self.r/10)**2: # we didn't want to be in flood of pallets, right so let say 0.2 of the area
 			self.__create(PVector.mult(PVector.random2D(),random(self.r))) # this make the center have more pallet density than that of the border but different ways from when it drop from the dead
+		self.dt=0.5*self.dt+0.5*10**(-9)*(time.time_ns()-self.t)
+		self.t=time.time_ns()
+		return 1/self.dt,event
 	def turn(self,iden,angle): # anyone with ID can turn the slither to that angle
-		if iden in self.__slithers and self.__slithers_data[i]['public']['status']=='live':
+		if iden in self.__slithers and self.__slithers_data[i]['public']['status']!='dead':
 			self.__slithers[iden].setangle(angle)
 			return True
 		return False
@@ -246,9 +269,7 @@ class fullmap: # the full server have come
 	def load(): # and pick this
 		return pickle.load(open('save.bin','rb'))
 	def __str__(self):
-		return json.dumps(self.data())
-	def login(self,auth,pwd):
-		return auth in self.__slithers_data and self.__slithers_data[auth]['private']['pass']==pwd
+		return json.dumps(self.export())
 
 class _bvh:
 	def __init__(self,objects,axis='x'):
@@ -312,8 +333,3 @@ class _bvh:
 		return a.collisions()+b.collisions()
 	def __str__(self):
 		return f"({self.l},{self.r})" if self.l and self.r else (f"({self.n})" if self.n else "()")+f" : {self.hitbox}"
-
-# for real HTTP implementation, Nope I won't do it.
-
-def delta(): # dummy one
-	return 30
