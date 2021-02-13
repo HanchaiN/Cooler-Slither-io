@@ -3,6 +3,7 @@
 import pickle # just dumb it
 import json
 import time # to track ticks per sec
+import collision
 
 from processing import * # to implement used processing built-in functions in normal cpython
 
@@ -110,11 +111,14 @@ class _tentacle: # our full slither are ready
 		self.__angle=angle
 	def __iter__(self): # how to use this as iterator
 		self.__iteration=self.__node # create variable to remeber where we are
-		self.__ind=-1 # and which node is this
+		self.__ind=0 # and which node is this
 		return self
 	def __next__(self):
-		if self.__ind!=-1: # except for the first one
-			self.__iteration = self.__iteration.getparent() # we will move to the next one
+		if self.__ind>0: # except for the first one
+			try:
+				self.__iteration = self.__iteration.getparent() # we will move to the next one
+			except:
+				raise StopIteration # we should have finished it in the last frame
 		self.__ind+=1 # just to escape form the first indicator actually
 		if not self.__iteration: # if nothing is avaliable
 			raise StopIteration # we end the iteration
@@ -134,6 +138,7 @@ class fullmap: # the full server have come
 		self.__pallets={} # and simply list of pallets
 		self.t=time.time_ns()
 		self.dt=0
+		self.__objects={}
 	def spawn(self,data={}): # spawn new slither of ID at pos
 		i=1
 		while i in self.__slithers:
@@ -158,30 +163,42 @@ class fullmap: # the full server have come
 		while i in self.__pallets:
 			i+=1
 		self.__pallets[i]=_pallet(loc,size) # put new pallet in at standard size of 10
-	def __objectlist(self): # we need to list objects for collision detection
-		objects=[]
+	def __updateobjectlist(self): # we need to list objects for collision detection
 		for i in self.__pallets:
-			objects.append(self.__pallets[i].data())
-			objects[-1].update({'data':{'type':'pallet','index':i}})
+			entity=self.__pallets[i].data()
+			entity.update({'data':{'type':'pallet','index':i}})
+			if ('pallet',i) in self.__objects:
+				self.__objects[('pallet',i)]|=collision.define_static_object(entity)
+			else:
+				self.__objects[('pallet',i)]=collision.define_mov_object(entity)
 		for i in self.__slithers:
 			if self.__slithers_data[i]['public']['status']=='dead':
 				continue
 			j=0
 			for n in self.__slithers[i]:
-				objects.append(n.data())
-				objects[-1].update({'data':{'type':'slither','index':i,'location':j}})
+				entity=n.data()
+				entity.update({'data':{'type':'slither','index':i,'location':j}})
+				if ('slither',i,j) in self.__objects:
+					self.__objects[('slither',i,j)]|=collision.define_static_object(entity)
+				else:
+					self.__objects[('slither',i,j)]=collision.define_mov_object(entity)
 				j+=1
-		return objects # well I just include all object in the game one-by-one
 	def update(self): # again updating time aka update()
 		event={}
-		col=_bvh(self.__objectlist()).collisions() # these function will be explianed later
+		self.__updateobjectlist() # get our objects - about 0.25 of detection time (swing)
+		col=collision.detect(self.__objects.values()) # collision detection - about 0.75 of detection time (swing)
+		rnd.shuffle(col) # avoid unswapped collision that happened to happen at the same time
+		col.sort(key=lambda x:x[1]) # whole detection process take 0.99 of update time, 0.75 of process time if handling request
 		dead=set([]) # we need to track for the dead one
 		eaten=set([]) # and also the eaten pallet
 		for i in col: # check each (detected) collision
+			i=i[0]
+			i[0]=i[0].curr.dat
+			i[1]=i[1].curr.dat
 			i.sort(key=lambda x:x['data']['type']) # for my hand's health (which was gone long ago) we will eliminate some useless choices by arrange the type of objects
 			if i[0]['data']['type']=='pallet':
 				if i[1]['data']['type']=='pallet':
-					if self.__pallets[i[1]['data']['index']].data()['rad']<35 and not(i[0]['data']['index'] in eaten or i[1]['data']['index'] in eaten): # pallet and pallet will merge but to avoid oversize (25++ I guess) and lost of volume : we have this condition
+					if self.__pallets[i[0]['data']['index']].data()['rad']<25 and self.__pallets[i[1]['data']['index']].data()['rad']<25 and not(i[0]['data']['index'] in eaten or i[1]['data']['index'] in eaten): # pallet and pallet will merge but to avoid oversize (25++ I guess) and lost of volume : we have this condition
 						eaten.add(i[0]['data']['index']) # mark as eaten
 						self.__pallets[i[1]['data']['index']].consume(self.__pallets[i[0]['data']['index']].data()['rad']**2,PVector(*self.__pallets[i[0]['data']['index']].data()['pos'])) # time to consume (and as I said we ignored PI
 				elif i[1]['data']['type']=='slither':
@@ -205,6 +222,7 @@ class fullmap: # the full server have come
 		eaten=list(eaten) # list eaten pallet
 		for i in eaten:
 			self.__pallets.pop(i) # pop the pallet gone
+			del self.__objects[('pallet',i)]
 		for i in self.__slithers: # check if it dead by the border
 			if self.__slithers_data[i]['public']['status']!='dead':
 				if PVector(*self.__slithers[i].head().data()['pos']).mag()>self.r-self.__slithers[i].head().data()['rad']:
@@ -217,6 +235,7 @@ class fullmap: # the full server have come
 						event['win']=set([self.__slithers_data[i]['private']['username']])
 		dead=list(dead)
 		for i in dead: # again but we have to care about drop
+			j=0
 			for n in self.__slithers[i]: # this make server crash so I change to just a big drop
 				k=(randomGaussian()+1)**2+n.data()['rad']*n.data()['rad']
 				loc=PVector(randomGaussian(),randomGaussian())
@@ -233,14 +252,29 @@ class fullmap: # the full server have come
 				# 	loc=PVector.mult(loc,n.data()['rad']/3)
 				# 	loc=PVector.add(loc,PVector(*n.data()['pos']))
 				# 	self.__create(loc) # place standard pallet at somewhere that 0.2% (+-3sigma) out of the axist
+				
+				try:
+					del self.__objects[('slither',i,j)]
+				except:
+					# print(self.__objects.keys()) # debug
+					pass
+				j+=1
 			self.__slithers_data[i]['public']['status']='dead' # to notify user
 			self.__slithers_data[i]['private']['dead']=self.t+1*60*10**9 # time to delete this dead from server
 			if self.__slithers_data[i]['private']['delete']:
+				if 'del' in event:
+					event['del'].add(self.__slithers_data[i]['private']['username'])
+				else:
+					event['del']=set([self.__slithers_data[i]['private']['username']])
 				self.remove(i)
 		dead=set([])
 		for t in self.__slithers:
 			if self.__slithers_data[t]['public']['status']=='dead':
 				if self.t>self.__slithers_data[t]['private']['dead']: # If you don't delete in given time, we will do it for you
+					if 'del' in event:
+						event['del'].add(self.__slithers_data[t]['private']['username'])
+					else:
+						event['del']=set([self.__slithers_data[t]['private']['username']])
 					dead.add(t)
 				continue
 			self.__slithers[t].update(self.dt) # update the slithers, now!
@@ -248,21 +282,23 @@ class fullmap: # the full server have come
 			self.remove(t)
 		if len(self.__pallets)<0.2*(self.r/10)**2: # we didn't want to be in flood of pallets, right so let say 0.2 of the area
 			self.__create(PVector.mult(PVector.random2D(),random(self.r))) # this make the center have more pallet density than that of the border but different ways from when it drop from the dead
-		self.dt=0.5*self.dt+0.5*10**(-9)*(time.time_ns()-self.t)
+		self.dt=10**(-9)*(time.time_ns()-self.t)
 		self.t=time.time_ns()
 		return 1/self.dt,event
 	def turn(self,iden,angle): # anyone with ID can turn the slither to that angle
-		if iden in self.__slithers and self.__slithers_data[i]['public']['status']!='dead':
+		if iden in self.__slithers and self.__slithers_data[iden]['public']['status']!='dead':
 			self.__slithers[iden].setangle(angle)
 			return True
 		return False
 	def export(self): # all data of all user is here tho, so hacks is possible if you don't apply some filter
-		d={'r':self.r,'slithers':{},'pallets':{}}
+		d={'r':self.r,'slithers':{},'pallets':{},'fps':1/self.dt if self.dt>0 else 0}
 		for p in self.__pallets:
 			d['pallets'][p]=self.__pallets[p].data()
 		for t in self.__slithers:
 			d['slithers'][t]={'data':self.__slithers[t].data(),'embed':self.__slithers_data[t]['public']}
 		return d
+	def data(self,iden):
+		return {'iden':iden,'user':self.__slithers_data[iden]['private'],'map':self.export()} if iden in self.__slithers_data else {'iden':iden,'user':{},'map':self.export()}
 	def store(self): # take this
 		pickle.dumb(self,open('save.bin','wb')) # I'm too lazy to modify this to json and then import back, so I just dump it all
 	@staticmethod
@@ -270,66 +306,3 @@ class fullmap: # the full server have come
 		return pickle.load(open('save.bin','rb'))
 	def __str__(self):
 		return json.dumps(self.export())
-
-class _bvh:
-	def __init__(self,objects,axis='x'):
-		self.l=None
-		self.r=None
-		self.n=None
-		self.hitbox=None
-		if len(objects)==0:
-			return
-		if len(objects)==1: # end node now
-			self.n=objects[0]
-			return
-		if axis=='x':
-			objects.sort(key=lambda a: a['pos'][1])
-			axis='y'
-		elif axis=='y':
-			objects.sort(key=lambda a: a['pos'][0])
-			axis='x'
-		self.l=_bvh(objects[:len(objects)//2:1],axis)
-		self.r=_bvh(objects[len(objects)//2::1],axis)
-	def boundary(self): # we need boundaries to see if it can collide
-		if not self.hitbox:
-			if self.n: # end node huh
-				return {'x':[self.n['pos'][0]-self.n['rad'],self.n['pos'][0]+self.n['rad']],'y':[self.n['pos'][1]-self.n['rad'],self.n['pos'][1]+self.n['rad']]}
-			l=self.l.boundary()
-			r=self.r.boundary()
-			self.hitbox={'x':[min(l['x'][0],r['x'][0]),max(l['x'][1],r['x'][1])],'y':[min(l['y'][0],r['y'][0]),max(l['y'][1],r['y'][1])]} # use the component one instead
-		return self.hitbox # dynamic programming, kind of
-	@staticmethod
-	def overlap(a,b):
-		if a.n and b.n: # end node need more accuracy tho
-			dst = PVector.sub(PVector(*a.n['pos']),PVector(*b.n['pos'])).mag()
-			return dst<a.n['rad']+b.n['rad']
-		l=a.boundary()
-		r=b.boundary()
-		if r['x'][0]<l['x'][0]: # if r?l??
-			r,l=l,r # l?r??
-		if r['x'][0]>l['x'][1]: # llrr
-			return False
-		if r['y'][0]<l['y'][0]: # "
-			r,l=l,r
-		if r['y'][0]>l['y'][1]: # "
-			return False
-		return True # well no way it can't collide left # lrlr in both axis
-	def collisions(self):
-		if self.n:
-			return []
-		return self.collision(self.l,self.r)
-	@staticmethod
-	def collision(a,b): # bla bla bla, code is in the Internet, just google it.
-		if (not a or not b):
-			return []
-		if _bvh.overlap(a,b):
-			if a.n and b.n:
-				return [[a.n,b.n]]
-			if a.n:
-				return b.collisions()+_bvh.collision(a,b.l)+_bvh.collision(a,b.r)
-			if b.n:
-				return a.collisions()+_bvh.collision(b,a.l)+_bvh.collision(b,a.r)
-			return a.collisions()+b.collisions()+_bvh.collision(a.l,b.l)+_bvh.collision(a.l,b.r)+_bvh.collision(a.r,b.l)+_bvh.collision(a.r,b.r)
-		return a.collisions()+b.collisions()
-	def __str__(self):
-		return f"({self.l},{self.r})" if self.l and self.r else (f"({self.n})" if self.n else "()")+f" : {self.hitbox}"

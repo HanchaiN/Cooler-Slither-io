@@ -19,8 +19,8 @@ class authentation:
 			return False
 		self.__data[usr]['role'][role]=iden
 		return True
-	def leave(self,usr,pwd,role):
-		if not self.login(usr,pwd) or role not in self.__data[usr]['role']:
+	def leave(self,usr,user,pwd,role):
+		if not self.login(user,pwd) or ( usr!=user and 'admin' not in self.__data[user]['role']) or role not in self.__data[usr]['role']:
 			return False
 		del self.__data[usr]['role'][role]
 		return True

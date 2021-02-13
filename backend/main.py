@@ -4,6 +4,7 @@ import backend
 import clients
 import json # to handle input
 import threading # to calculate and manage http at once
+import os
 
 g=backend.fullmap(1000) # here's come our map
 db=clients.authentation()
@@ -11,6 +12,7 @@ db=clients.authentation()
 # Here I come. HTTPs setup.
 import flask
 import flask_restful
+from flask_restful import reqparse
 import flask_httpauth
 
 app = flask.Flask(__name__)
@@ -29,9 +31,11 @@ def get_user_roles(user): # we may have roles, for each player and admin to mess
 # login as player give you permission to control your corresponding slither
 # you can signup somewhere else first
 
-class GameplayHandler(flask_restful.Resource):
+class PlayerGameplayHandler(flask_restful.Resource):
+	@auth.login_required(role=['slither'])
 	def get(self):
-		return g.export(), 200
+		with locker:
+			return g.data(auth.current_user()[2]['slither']), 200
 	@auth.login_required(role=['user']) # sadly admin can't play it directly.
 	def post(self):
 		data=json.loads(flask.request.get_data())
@@ -40,27 +44,41 @@ class GameplayHandler(flask_restful.Resource):
 			assert type(data['private'])==dict
 			usr=auth.current_user()
 			data['private']['username']=usr[0]
-			assert db.join(usr[0],usr[1],'player',g.spawn(data))
+			p=None
+			with locker:
+				p=g.spawn(data)
+			assert db.join(usr[0],usr[1],'slither',p)
 		except:
 			flask_restful.abort(400)
 		return '', 201
-	@auth.login_required(role=['player'])
+	@auth.login_required(role=['slither'])
 	def put(self):
-		parser = flask_restful.reqparse.RequestParser()
+		parser = reqparse.RequestParser()
 		parser.add_argument('angle',type=float)
 		args = parser.parse_args()
-		if g.turn(auth.current_user()[2]['player'],args['angle']):
+		p=None
+		with locker:
+			p=g.turn(auth.current_user()[2]['slither'],args['angle'])
+		if p:
 			return '', 204
 		else:
 			return '', 202
-	@auth.login_required(role=['player'])
+	@auth.login_required(role=['slither'])
 	def delete(self):
-		if g.remove(auth.current_user()[2]['player']):
+		p=None
+		with locker:
+			p=g.remove(auth.current_user()[2]['slither'])
+		if p:
 			usr=auth.current_user()
-			db.leave(usr[0],usr[1],'player') # no more login in this slither
+			db.leave(usr[0],usr[0],usr[1],'slither') # no more login in this slither
 			return '',204
 		else:
 			return '',202
+
+class ViewerGameplayHandler(flask_restful.Resource):
+	def get(self):
+		with locker:
+			return g.export(), 200
 
 class UserHandler(flask_restful.Resource): # accounts management
 	def post(self):
@@ -88,11 +106,15 @@ class AdminHandler(flask_restful.Resource): # may be implement long later
 
 @app.route('/')
 def main():
-	return 'Go to /user to manage account and /play to play'
+	return 'Go to /user to manage account and .../play to play games'
+@app.route('/slitherio')
+def slitherio():
+	return f"{fps}"
 
-api.add_resource(GameplayHandler,'/play') # gameplay api
+api.add_resource(PlayerGameplayHandler,'/slitherio/play') # gameplay api
+api.add_resource(ViewerGameplayHandler,'/slitherio/view') # gameplay api
 api.add_resource(UserHandler,'/user') # account api
-api.add_resource(AdminHandler,'/user/admin') # admin account api
+api.add_resource(AdminHandler,'/admin') # admin account api
 
 def handler():
 	app.run(
@@ -100,20 +122,32 @@ def handler():
 			port=8000
 		)
 
+fps=0
 # Standard run
+import time
 def calculate():
-	delta=0
-	backend.delta=lambda: delta
 	while True:
+		global fps
 		with locker:
 			fps,event=g.update()
 		if 'win' in event:
 			for i in event['win']:
 				db.setdata(i,{'slither':'winned'})
+		time.sleep(max(1/30-1/fps,0))
+		# if 'del' in event: # manage yourself, this cause a lot of trouble
+		# 	for i in event['del']:
+		# 		db.leave(i,os.getenv("ADMIN_USR"),os.getenv("ADMIN_PWD"),'slither')
 
 
 # initiate the threads
-locker=threading.Lock()
+class locker(): # dummy locker, increase performance but decrease accuracy (buggy)
+	def __init__(self):
+		pass
+	def __enter__(self):
+		return None
+	def __exit__(self, type, value, traceback):
+		pass
+locker= threading.Lock() # decrease perfomance but avoid collision of data
 handler_=threading.Thread(target=handler)
 handler_.daemon=True
 calculate_=threading.Thread(target=calculate)
