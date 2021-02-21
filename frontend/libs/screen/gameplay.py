@@ -1,5 +1,4 @@
-# original code at https://github.com/clear-code-projects/Snake
-# modified by Hanchai Nonprasart
+# Hanchai Nonprasart
 
 import pygame,os
 from ..server import client

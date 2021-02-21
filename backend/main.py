@@ -1,4 +1,5 @@
 # original code at https://github.com/clear-code-projects/Snake
+# original code at https://techwithtim.net/tutorials/socket-programming/
 # modified by Hanchai Nonprasart
 
 import pygame,random

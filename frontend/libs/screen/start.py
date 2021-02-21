@@ -1,4 +1,4 @@
-
+# Hanchai Nonprasart
 import pygame
 fps=30
 screen=None
