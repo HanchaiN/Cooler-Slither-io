@@ -1,5 +1,5 @@
-__pycache__/**
-*.o
+*/__pycache__/**
 *.pyc
-*$py.class
 *.env
+*.replit
+*/.vscode/**

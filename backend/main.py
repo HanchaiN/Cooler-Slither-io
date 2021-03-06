@@ -335,7 +335,8 @@ def main():
 
 	main_game = MAIN()
 	while True:
-		main_game.update()
+		if all(iden):
+			main_game.update()
 		main_game.draw_elements()
 		scr.blit(game,game_rect)
 		pygame.display.update()
@@ -352,7 +353,7 @@ server.bind(ADDR)
 
 iden=[False,False]
 
-def handle_client(conn, addr):
+def handle_client(conn, addr): # May added to the users for them to host themselves
 	global main_game,iden
 	print(f"[NEW CONNECTION] {addr} connected.")
 	identity=-1
